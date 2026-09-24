@@ -1,4 +1,4 @@
-# Beacon.Tests.ps1 — Pester v5 acceptance tests for Beacon.ps1
+# Beacon.Tests.ps1 -- Pester v5 acceptance tests for Beacon.ps1
 #
 # TDD contract: Beacon.ps1 MUST satisfy every test in this file.
 # Run on the target machine (or CI Windows runner):
@@ -10,6 +10,8 @@
 #   3. Never hang: every remote call has a timeout; every command has a timeout.
 #   4. Never flood: outputs are truncated, heartbeats are rate-limited.
 #   5. Diagnose is read-only; repair is idempotent.
+#   6. Pure ASCII script: Windows PowerShell 5.1 reads a BOM-less .ps1 as ANSI,
+#      so any non-ASCII char can break parsing. The launcher also writes a BOM.
 
 BeforeAll {
     . "$PSScriptRoot/Beacon.ps1"   # dot-source: loads functions, runs nothing
@@ -107,6 +109,18 @@ Describe "Install-Beacon idempotency contract" {
     It "exposes Install-Beacon and Uninstall-Beacon functions" {
         (Get-Command Install-Beacon -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
         (Get-Command Uninstall-Beacon -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe "Beacon.ps1 encoding (the v0.2.0 install bug)" {
+    It "is pure ASCII so Windows PowerShell 5.1 parses it correctly" {
+        $bytes = [IO.File]::ReadAllBytes("$PSScriptRoot/Beacon.ps1")
+        $bad = @($bytes | Where-Object { $_ -gt 127 })
+        $bad.Count | Should -Be 0
+    }
+
+    It "reports version 0.3.0" {
+        $script:BeaconVersion | Should -Be "0.3.0"
     }
 }
 
