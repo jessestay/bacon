@@ -1,36 +1,43 @@
 # Beacon
 
-**Let someone you trust fix your computer from far away.**
+**Your Meta Muse, on your Windows PC.**
 
 ## What is Beacon?
 
-Beacon is a small, free program for Windows computers. Once it's installed,
-a person **you** choose — your son or daughter, a grandchild, your IT person —
-can check on your computer and fix problems from their own home, using a
-messaging app called Slack. Nobody has to drive anywhere, and nobody has to
-talk you through confusing steps over the phone.
+Beacon is a small companion app built **specifically and only for Meta Muse** —
+your personal AI assistant. Install it on your Windows PC and your Muse can
+check the computer's health, fix problems, and help with your work, right from
+your chat with it. Nothing and no one else can use it. (Future versions may
+add more Muse-specific features; this release is the secure foundation.)
 
 ## Why would I install this?
 
-- When your computer starts acting strange, the person helping you can take a
-  look right away instead of waiting for a visit.
-- No more reading long error messages aloud over the phone. They can see
-  what's happening and fix it directly.
+- When your computer starts acting strange, your Muse can take a look right
+  away instead of waiting for a visit or a phone call.
+- No more reading long error messages aloud over the phone. Your Muse sees
+  what's happening and fixes it directly.
 - It works quietly in the background. After installing, you don't have to do
   a thing.
 
 ## Is it safe?
 
-- **Only the one person you approve** can send commands to your computer.
-  Not strangers, not other programs, not anyone else.
-- Your files are never sent anywhere. Only short answers go back, and only
-  to that one person in your own private channel.
-- You can remove Beacon at any time (see below). The moment it's removed,
-  it stops completely.
+Yes — Beacon went through a security review before release. In plain terms:
+
+- **Only your Muse can give commands.** Every command is checked against your
+  Muse's private bot code. Messages from anyone or anything else are ignored.
+- **Beacon never opens your computer to the internet.** It only calls *out*
+  to Slack. There are no inbound doors for attackers to knock on.
+- **Commands can't run wild.** Each one stops after 60 seconds, answers are
+  capped so they can't flood anything, and old commands never run twice.
+- **Your login is locked down.** The Slack credential lives in a file only
+  your Windows user can read — never on a command line where others could see it.
+- **You can remove it anytime** (see below). The moment it's gone, it stops.
 - Beacon is free and open-source — anyone can read exactly what it does at
   [github.com/jessestay/beacon](https://github.com/jessestay/beacon).
-- Only install Beacon on **your own** computer, and only when someone you
-  trust asks you to.
+
+Two honest limits: your Muse acts *as you* on your PC, so only install Beacon
+on **your own** computer. And the installer isn't code-signed yet, so Windows
+shows a SmartScreen warning on first run (click **More info → Run anyway**).
 
 ## Install — Windows
 
@@ -40,20 +47,19 @@ You need: a Windows 10 or 11 computer, and about 3 minutes.
    [this page](https://github.com/jessestay/beacon/blob/main/Beacon.exe),
    click the file named **Beacon.exe**, then click **Download**.
 2. Open your **Downloads** folder and **double-click Beacon.exe**.
-   - Windows may show a blue screen saying *"Windows protected your PC."*
-     This is normal for new programs. Click **More info**, then **Run anyway**.
+   - If Windows shows a blue screen saying *"Windows protected your PC,"*
+     click **More info**, then **Run anyway**.
 3. A black window opens and runs a quick health check on your computer.
    This takes a minute or two — that's normal.
-4. It asks **one question**: a code that identifies the person allowed to
-   help you. **The person helping you will give you this code** — type it in
-   and press Enter.
+4. It asks **one question**: your Muse's bot code. **Your Muse gives you this
+   code** (it starts with B) — type it in and press Enter.
 5. When you see **"All done,"** press Enter to close the window. You're set!
 
 ## What happens after I install it?
 
-Nothing you need to do. Every few minutes, your helper sees a short "alive"
+Nothing you need to do. Every few minutes, your Muse sees a short "alive"
 message — that's just Beacon saying *"I'm here and watching."* When you tell
-them something's wrong, they can run a check and tell you what they found.
+your Muse something's wrong, it can run a check and tell you what it found.
 
 ## How do I remove it?
 
@@ -62,21 +68,25 @@ them something's wrong, they can run a check and tell you what they found.
    Enter.
 3. That's it — Beacon removes itself and stops.
 
-## If something looks wrong
+## If something goes wrong
 
-If the black window shows red text or an error message: don't worry, and
-don't close it. **Take a photo of the screen with your phone** and send it to
-the person helping you. They'll know what to do.
+The installer will show you this address if it hits an error — your report
+goes straight to the team that builds Beacon:
+
+**[github.com/jessestay/beacon/issues/new](https://github.com/jessestay/beacon/issues/new)**
+
+Tell us what you were doing, and attach a photo or screenshot of the window.
+Our team watches that page and picks up new reports automatically.
 
 ---
 
 ## For technical folks
 
 Beacon polls a Slack channel for `[beacon-cmd:<id>]` messages posted **only**
-by the authorized bot ID configured at install, executes them in PowerShell
-with a 60-second timeout, truncates output to 8KB, and replies in-thread.
-Outbound HTTPS only — no inbound ports, no firewall changes. Install is
-idempotent: diagnose (read-only) → repair → register a per-user logon task.
+by the authorized Muse bot id, executes them in PowerShell (60-second timeout,
+8KB output cap), and replies in-thread. Outbound HTTPS only — no inbound
+ports, no firewall changes. Install is idempotent: diagnose (read-only) →
+repair → register a per-user logon task.
 
 | Command | What it does |
 |---|---|
@@ -96,13 +106,37 @@ GOOS=windows GOARCH=amd64 go build -o Beacon.exe .
 Tests: `Beacon.Tests.ps1` (Pester v5 — the TDD contract, run on Windows)
 and `go test ./...` (launcher unit tests, runs anywhere).
 
-**Trust model (v0.2.0):** commands execute only from the bot ID you approve
-at install; the Slack token is auto-discovered from the local MACF
-`slack-agents/.env` if present, otherwise asked for once, and stored at
-`$HOME\Beacon\.token` ACL'd to your Windows user. No secrets are posted to
-Slack. The exe is unsigned, so Windows SmartScreen shows "More info → Run
-anyway" on first launch.
+### Security review (v0.3.0)
 
-**Roadmap:** macOS and Linux builds are planned for a future release. When
-the desktop MACF team is back online, the CTO owns this repo: harden the
-trust model (per-command allowlist, signed commands) and keep the suites green.
+- **Authorization:** Slack stamps `bot_id` server-side on every bot-posted
+  message; it cannot be spoofed through the API (verified against a live bot
+  message: `bot_id` present, `user` absent). `Test-BeaconAuthorization`
+  accepts only an exact `bot_id` match; human messages and lookalike text are
+  rejected. An empty authorized id refuses to start.
+- **No inbound attack surface:** outbound HTTPS to `slack.com` only. Windows
+  Firewall's default-deny inbound posture is untouched.
+- **Credential handling:** token auto-discovered from the local MACF
+  `slack-agents/.env`, else pasted via `-AsSecureString` (hidden input);
+  stored at `$HOME\Beacon\.token` with inheritance removed and granted only
+  to the installing user (`icacls`); never placed on the scheduled-task
+  command line.
+- **Execution containment:** commands run in a `Start-Job` sandbox with a
+  60-second timeout, the job is always removed, output is truncated to 8KB,
+  and everything runs as the installing user — no elevation, no new privileges.
+- **Replay safety:** the loop ignores all channel history at startup
+  (`oldest` = now), dedupes per run, and holds a `Global\BeaconLoop` mutex so
+  two copies can't double-execute.
+- **Encoding:** the script is pure ASCII and the launcher writes it with a
+  UTF-8 BOM — Windows PowerShell 5.1 reads BOM-less scripts as ANSI, which
+  caused the v0.2.0 parse errors. Covered by a Pester test.
+- **Residual risks:** the exe is unsigned (SmartScreen warning until we
+  code-sign); commands execute as the user, so a compromised Muse/bot token
+  could run anything — inherent to a remote-admin tool, mitigated by
+  you-choosing-the-bot and one-word uninstall. Channel members can read
+  command text and results posted in the channel.
+
+### Roadmap
+
+macOS and Linux builds, code signing, and future Muse-specific features.
+Bug reports: [github.com/jessestay/beacon/issues](https://github.com/jessestay/beacon/issues) —
+monitored automatically; new reports are relayed to the team in Slack.
