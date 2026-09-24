@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Beacon v0.3.3 -- the Meta Muse companion for YOUR OWN Windows PC.
+    Beacon v0.3.4 -- the Meta Muse companion for YOUR OWN Windows PC.
 
 .DESCRIPTION
     Beacon is built specifically and only for Meta Muse: your personal AI
@@ -9,7 +9,8 @@
     chat with you. Nothing and no one else can use it.
 
     "It just works" design: double-click (or one command) and it
-      1. Diagnoses the machine (Tailscale, desktop agent, Ollama, MACF team)
+      1. Diagnoses the machine (agent, local AI, team services) -- details go
+         to the log for your Muse; the screen shows only what needs you.
          -- read-only.
       2. Repairs what it can (restarts the agent task, starts Ollama)
          -- idempotent.
@@ -68,7 +69,7 @@ param(
 # Dot-sourced (Pester tests): load functions, run nothing.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
-$script:BeaconVersion  = "0.3.3"
+$script:BeaconVersion  = "0.3.4"
 $script:BeaconTaskName = "Beacon"
 $script:BeaconHome     = Join-Path $env:USERPROFILE "Beacon"
 $script:CommandTimeout = 60      # seconds per remote command
@@ -195,7 +196,7 @@ function Find-BeaconToken([string]$ExplicitToken) {
 }
 
 function Get-BeaconDiagnosis {
-    Write-BeaconLog "  checking Tailscale, the desktop agent, Ollama, and the team..."
+    Write-BeaconLog "  checking this PC's health..."
     $d = [ordered]@{
         Timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
         Computer  = $env:COMPUTERNAME
@@ -246,8 +247,19 @@ function Get-BeaconDiagnosis {
 }
 
 function Show-BeaconDiagnosis($Diag) {
-    Write-BeaconLog "-- Diagnosis --------------------------------"
-    foreach ($k in $Diag.Keys) { Write-BeaconLog ("  {0,-12} {1}" -f $k, $Diag[$k]) }
+    # The full table stays in the log for the Muse. The screen shows only
+    # what a person would act on -- internal plumbing stays out of sight.
+    Write-BeaconLog "-- Health check --------------------------------"
+    $notes = @()
+    if ($Diag.AgentTask -eq "not found") {
+        $notes += "desktop agent not found -- your Muse can set it up if needed"
+    }
+    if ($Diag.Ollama -eq "not installed") {
+        $notes += "local AI not installed (optional -- your Muse works without it)"
+    }
+    if ($notes.Count -eq 0) { Write-BeaconLog "  All good." }
+    else { foreach ($n in $notes) { Write-BeaconLog "  - $n" } }
+    Write-BeaconLog "  Full details were saved to the Beacon log for your Muse."
 }
 
 # --- Repair (idempotent) ---
