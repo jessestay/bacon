@@ -88,8 +88,8 @@ func main() {
 	psArgs := append([]string{
 		"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1Path,
 	}, flags...)
-	fmt.Println("Beacon is starting. First launch can take a minute --")
-	fmt.Println("Windows PowerShell is warming up. Please wait...")
+	fmt.Println("Beacon is starting. First install usually takes a few minutes --")
+	fmt.Println("Windows PowerShell is warming up. Please keep this window open...")
 	fmt.Println()
 	cmd := exec.Command("powershell.exe", psArgs...)
 	cmd.Stdin = os.Stdin
