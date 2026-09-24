@@ -75,7 +75,11 @@ func main() {
 	defer os.RemoveAll(tmpDir)
 
 	ps1Path := filepath.Join(tmpDir, "Beacon.ps1")
-	if err := os.WriteFile(ps1Path, []byte(beaconScript), 0600); err != nil {
+	// UTF-8 BOM: Windows PowerShell 5.1 reads a BOM-less .ps1 as ANSI,
+	// which mis-decodes any non-ASCII byte and breaks parsing (v0.2.0 bug).
+	// The script itself is pure ASCII; the BOM is belt and suspenders.
+	scriptBytes := append([]byte{0xEF, 0xBB, 0xBF}, []byte(beaconScript)...)
+	if err := os.WriteFile(ps1Path, scriptBytes, 0600); err != nil {
 		fmt.Println("Couldn't unpack Beacon:", err)
 		pause()
 		os.Exit(1)
@@ -90,8 +94,10 @@ func main() {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Println()
-		fmt.Println("Beacon stopped with an error. If you need help,")
-		fmt.Println("take a photo of this window and send it to the person helping you.")
+		fmt.Println("Something went wrong. Please report it so it can be fixed:")
+		fmt.Println("  https://github.com/jessestay/beacon/issues/new")
+		fmt.Println("Tell us what you were doing, and attach a photo or")
+		fmt.Println("screenshot of this window.")
 		pause()
 		os.Exit(1)
 	}
