@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Beacon v0.3.0 -- the Meta Muse companion for YOUR OWN Windows PC.
+    Beacon v0.3.1 -- the Meta Muse companion for YOUR OWN Windows PC.
 
 .DESCRIPTION
     Beacon is built specifically and only for Meta Muse: your personal AI
@@ -67,7 +67,7 @@ param(
 # Dot-sourced (Pester tests): load functions, run nothing.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
-$script:BeaconVersion  = "0.3.0"
+$script:BeaconVersion  = "0.3.1"
 $script:BeaconTaskName = "Beacon"
 $script:BeaconHome     = Join-Path $env:USERPROFILE "Beacon"
 $script:CommandTimeout = 60      # seconds per remote command
@@ -132,6 +132,7 @@ function Test-BeaconPort([string]$Computer = "127.0.0.1", [int]$Port = 8099, [in
 }
 
 function Test-BeaconPrereqs {
+    Write-BeaconLog "  reaching slack.com to verify internet access..."
     $issues = @()
     if ($PSVersionTable.PSVersion.Major -lt 5) { $issues += "PowerShell 5.1 or newer required" }
     try {
@@ -179,6 +180,7 @@ function Find-BeaconToken([string]$ExplicitToken) {
 }
 
 function Get-BeaconDiagnosis {
+    Write-BeaconLog "  checking Tailscale, the desktop agent, Ollama, and the team..."
     $d = [ordered]@{
         Timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
         Computer  = $env:COMPUTERNAME
@@ -457,6 +459,7 @@ Write-BeaconLog "Beacon v$($script:BeaconVersion) -- the Meta Muse companion for
 if ($SelfTest) { exit (Invoke-BeaconSelfTest) }
 if ($Uninstall) { Uninstall-Beacon; exit 0 }
 
+Write-BeaconLog "Step 1 of 3: checking prerequisites..."
 $pre = Test-BeaconPrereqs
 if (-not $pre.Ok) {
     Write-BeaconLog "Prerequisites failed:"
@@ -464,8 +467,10 @@ if (-not $pre.Ok) {
     exit 1
 }
 
+Write-BeaconLog "Step 2 of 3: running health check (a minute or two)..."
 $diag = Get-BeaconDiagnosis
 Show-BeaconDiagnosis $diag
+Write-BeaconLog "Step 3 of 3: repairing anything broken..."
 Repair-BeaconAgent $diag
 
 if ($NoLoop) { Write-BeaconLog "Done (NoLoop)."; exit 0 }
