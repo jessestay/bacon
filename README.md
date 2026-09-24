@@ -41,7 +41,10 @@ shows a SmartScreen warning on first run (click **More info → Run anyway**).
 
 ## Install — Windows
 
-You need: a Windows 10 or 11 computer, and about 3 minutes.
+You need: a Windows 10 or 11 computer, and about 3 minutes. No downloads, no
+setup, no administrator password — everything Beacon needs (Windows
+PowerShell and an internet connection) is already on your PC, and Beacon
+checks both automatically before it starts.
 
 1. **Download Beacon:** open
    [this page](https://github.com/jessestay/beacon/blob/main/Beacon.exe),
