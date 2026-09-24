@@ -119,8 +119,8 @@ Describe "Beacon.ps1 encoding (the v0.2.0 install bug)" {
         $bad.Count | Should -Be 0
     }
 
-    It "reports version 0.3.2" {
-        $script:BeaconVersion | Should -Be "0.3.2"
+    It "reports version 0.3.3" {
+        $script:BeaconVersion | Should -Be "0.3.3"
     }
 }
 
