@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Beacon v0.3.4 -- the Meta Muse companion for YOUR OWN Windows PC.
+    Beacon v0.3.5 -- the Meta Muse companion for YOUR OWN Windows PC.
 
 .DESCRIPTION
     Beacon is built specifically and only for Meta Muse: your personal AI
@@ -69,7 +69,7 @@ param(
 # Dot-sourced (Pester tests): load functions, run nothing.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
-$script:BeaconVersion  = "0.3.4"
+$script:BeaconVersion  = "0.3.5"
 $script:BeaconTaskName = "Beacon"
 $script:BeaconHome     = Join-Path $env:USERPROFILE "Beacon"
 $script:CommandTimeout = 60      # seconds per remote command
@@ -507,15 +507,25 @@ Write-Progress -Activity "Beacon install" -Completed
 
 if ($NoLoop) { Write-BeaconLog "Done (NoLoop)."; exit 0 }
 
-if ([string]::IsNullOrWhiteSpace($AuthorizedBotId)) {
+# One question, asked well: a stray Enter key during startup must never kill
+# the install, so an empty or malformed answer re-prompts instead of exiting.
+$attempts = 0
+while ([string]::IsNullOrWhiteSpace($AuthorizedBotId) -and $attempts -lt 3) {
+    $attempts++
     if ($FromTask) { Write-BeaconLog "No AuthorizedBotId and not interactive -- exiting."; exit 1 }
-    Write-BeaconLog "Beacon works only with your Meta Muse -- your personal AI assistant."
-    Write-BeaconLog "Paste your Muse's Slack bot ID (starts with B, e.g. B0C39F2CNHJ)."
-    Write-BeaconLog "Your Muse gives you this code. Nothing else can ever send commands."
-    $AuthorizedBotId = (Read-Host "Muse bot ID").Trim()
+    if ($attempts -eq 1) {
+        Write-BeaconLog "Beacon works only with your Meta Muse -- your personal AI assistant."
+        Write-BeaconLog "Your Muse sent you a code for this PC. It starts with B, like B0C39F2CNHJ."
+        Write-BeaconLog "Paste the code below and press Enter."
+    } else {
+        Write-BeaconLog "That didn't look like a Muse code (it starts with B). Try again."
+    }
+    $candidate = (Read-Host "Muse code").Trim()
+    if ($candidate -match '^B[A-Z0-9]{4,}$') { $AuthorizedBotId = $candidate }
 }
 if ([string]::IsNullOrWhiteSpace($AuthorizedBotId)) {
-    Write-BeaconLog "No authorized bot -- refusing to start the loop without one."
+    Write-BeaconLog "No Muse code entered -- Beacon can't start without it."
+    Write-BeaconLog "Ask your Muse for the code, then double-click Beacon again."
     exit 1
 }
 
