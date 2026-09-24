@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Beacon v0.3.2 -- the Meta Muse companion for YOUR OWN Windows PC.
+    Beacon v0.3.3 -- the Meta Muse companion for YOUR OWN Windows PC.
 
 .DESCRIPTION
     Beacon is built specifically and only for Meta Muse: your personal AI
@@ -45,7 +45,8 @@
 
 .PARAMETER Token
     Slack bot token. If omitted, Beacon looks for the MACF slack-agents .env,
-    then $HOME\Beacon\.token, then asks once (input hidden).
+    then $HOME\Beacon\.token. It never asks for one: if none is found it
+    says so plainly and stops.
 
 .EXAMPLE
     .\Beacon.ps1 -SelfTest     # verify on this machine, change nothing
@@ -67,7 +68,7 @@ param(
 # Dot-sourced (Pester tests): load functions, run nothing.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
-$script:BeaconVersion  = "0.3.2"
+$script:BeaconVersion  = "0.3.3"
 $script:BeaconTaskName = "Beacon"
 $script:BeaconHome     = Join-Path $env:USERPROFILE "Beacon"
 $script:CommandTimeout = 60      # seconds per remote command
@@ -163,6 +164,20 @@ function Find-BeaconToken([string]$ExplicitToken) {
         foreach ($n in $nodes) {
             $m = [regex]::Match($n.CommandLine, '([A-Za-z]:\\[^"]*?slack-agents)')
             if ($m.Success) { $candidates += (Join-Path $m.Groups[1].Value ".env") }
+        }
+    } catch { }
+
+    # Bounded filesystem sweep: the team's .env lives somewhere under the profile.
+    # Depth 2 covers ~\slack-agents\.env and ~\MACF\slack-agents\.env. Fast, no prompts.
+    try {
+        $sweepRoots = @($env:USERPROFILE, (Join-Path $env:USERPROFILE "Desktop"))
+        foreach ($root in $sweepRoots) {
+            if (-not (Test-Path $root)) { continue }
+            $hits = Get-ChildItem -Path $root -Filter ".env" -Recurse -Depth 2 -File `
+                -ErrorAction SilentlyContinue |
+                Where-Object { $_.DirectoryName -match 'slack-agents' } |
+                Select-Object -First 2
+            foreach ($h in $hits) { $candidates += $h.FullName }
         }
     } catch { }
 
@@ -446,7 +461,7 @@ function Invoke-BeaconSelfTest {
     $diag = Get-BeaconDiagnosis   # read-only by design
     Assert-True ($diag.Contains("Port8099") -and $diag.Contains("AgentTask")) "diagnosis contract"
     $tok = Find-BeaconToken ""
-    Write-BeaconLog "INFO  token discovery: $(if ($tok) { 'found' } else { 'not found (loop will ask once)' })"
+    Write-BeaconLog "INFO  token discovery: $(if ($tok) { 'found' } else { 'not found (install will stop with a plain message)' })"
 
     if ($script:fail -eq 0) { Write-BeaconLog "SELF-TEST: all passed."; return 0 }
     Write-BeaconLog "SELF-TEST: $($script:fail) failure(s)."; return 1
@@ -498,13 +513,13 @@ if ([string]::IsNullOrWhiteSpace($token)) {
     if (Test-Path $tf) { $token = (Get-Content $tf -Raw).Trim() }
 }
 if ([string]::IsNullOrWhiteSpace($token)) {
-    if ($FromTask) { Write-BeaconLog "No Slack token and not interactive -- exiting."; exit 1 }
-    Write-BeaconLog "Could not find a Slack token automatically."
-    $sec = Read-Host "Paste your Slack bot token (xoxb-...) -- input is hidden" -AsSecureString
-    $token = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)).Trim()
+    # No interactive token prompt, ever: a public user should never care
+    # about Slack tokens. Either we find the connection or we say so plainly.
+    Write-BeaconLog ""
+    Write-BeaconLog "Beacon couldn't find your Muse's Slack connection on this PC."
+    Write-BeaconLog "Ask your Muse to set it up, then double-click Beacon again."
+    exit 1
 }
-if ([string]::IsNullOrWhiteSpace($token)) { Write-BeaconLog "No token -- cannot start loop."; exit 1 }
 
 if ($Install) { Install-Beacon $token $Channel $PollSeconds $AuthorizedBotId; exit 0 }
 
