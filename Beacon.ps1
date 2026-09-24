@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Beacon v0.3.1 -- the Meta Muse companion for YOUR OWN Windows PC.
+    Beacon v0.3.2 -- the Meta Muse companion for YOUR OWN Windows PC.
 
 .DESCRIPTION
     Beacon is built specifically and only for Meta Muse: your personal AI
@@ -67,7 +67,7 @@ param(
 # Dot-sourced (Pester tests): load functions, run nothing.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
-$script:BeaconVersion  = "0.3.1"
+$script:BeaconVersion  = "0.3.2"
 $script:BeaconTaskName = "Beacon"
 $script:BeaconHome     = Join-Path $env:USERPROFILE "Beacon"
 $script:CommandTimeout = 60      # seconds per remote command
@@ -460,18 +460,23 @@ if ($SelfTest) { exit (Invoke-BeaconSelfTest) }
 if ($Uninstall) { Uninstall-Beacon; exit 0 }
 
 Write-BeaconLog "Step 1 of 3: checking prerequisites..."
+Write-Progress -Activity "Beacon install" -Status "Step 1 of 3: checking prerequisites..." -PercentComplete 10
 $pre = Test-BeaconPrereqs
 if (-not $pre.Ok) {
+    Write-Progress -Activity "Beacon install" -Completed
     Write-BeaconLog "Prerequisites failed:"
     $pre.Issues | ForEach-Object { Write-BeaconLog "  - $_" }
     exit 1
 }
 
 Write-BeaconLog "Step 2 of 3: running health check (a minute or two)..."
+Write-Progress -Activity "Beacon install" -Status "Step 2 of 3: running health check..." -PercentComplete 40
 $diag = Get-BeaconDiagnosis
 Show-BeaconDiagnosis $diag
 Write-BeaconLog "Step 3 of 3: repairing anything broken..."
+Write-Progress -Activity "Beacon install" -Status "Step 3 of 3: repairing anything broken..." -PercentComplete 70
 Repair-BeaconAgent $diag
+Write-Progress -Activity "Beacon install" -Completed
 
 if ($NoLoop) { Write-BeaconLog "Done (NoLoop)."; exit 0 }
 
