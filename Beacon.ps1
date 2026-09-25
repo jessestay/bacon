@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Beacon v0.3.5 -- the Meta Muse companion for YOUR OWN Windows PC.
+    Beacon v0.3.6 -- the Meta Muse companion for YOUR OWN Windows PC.
 
 .DESCRIPTION
     Beacon is built specifically and only for Meta Muse: your personal AI
     assistant. Install it on your Windows PC and your Muse can check the
     machine's health, fix problems, and help with your work, right from a
-    chat with you. Nothing and no one else can use it.
+    chat with you.
 
     "It just works" design: double-click (or one command) and it
       1. Diagnoses the machine (agent, local AI, team services) -- details go
@@ -16,8 +16,13 @@
          -- idempotent.
       3. Opens a command channel to your Muse over Slack (outbound HTTPS
          only -- no firewall changes, no inbound ports). Commands are
-         accepted ONLY from your Muse's bot id. Every command times out;
-         output is truncated; history is never re-executed.
+         accepted ONLY from your Muse's Slack app id. Every command times out;
+         output is truncated; each message is executed at most once.
+
+    Honest trust note: the app id identifies your Muse's Slack app, not the
+    agent itself. Anything that can make that app post (or anything holding
+    the app's token) can issue commands -- keep the token private, same as
+    any password.
 
     Run with -SelfTest to execute the acceptance tests without changing anything.
 
@@ -66,12 +71,11 @@ param(
     [string]$Token = ""
 )
 
-# Dot-sourced (Pester tests): load functions, run nothing.
-if ($MyInvocation.InvocationName -eq '.') { return }
-
-$script:BeaconVersion  = "0.3.5"
+# Version + identity. Set before the functions so dot-sourced test runs see them.
+$script:BeaconVersion  = "0.3.6"
 $script:BeaconTaskName = "Beacon"
 $script:BeaconHome     = Join-Path $env:USERPROFILE "Beacon"
+$script:BeaconUser     = [Environment]::UserName   # reliable even when $env:USERNAME is empty
 $script:CommandTimeout = 60      # seconds per remote command
 $script:MaxOutput      = 8000    # chars per command result
 $script:HeartbeatSecs = 600     # heartbeat cadence
@@ -88,12 +92,16 @@ function ConvertTo-BeaconCommand($Message) {
     if ([string]::IsNullOrWhiteSpace($text)) { return $null }
     $m = [regex]::Match($text, '^\[beacon-cmd:([A-Za-z0-9_-]+)\]\s*(.+?)\s*$')
     if (-not $m.Success) { return $null }
-    return [pscustomobject]@{ Id = $m.Groups[1].Value; CommandText = $m.Groups[2].Value }
+    # A tag with no real command ("[beacon-cmd:abc]   ") must not execute.
+    if ([string]::IsNullOrWhiteSpace($m.Groups[2].Value)) { return $null }
+    return [pscustomobject]@{ Id = $m.Groups[1].Value; CommandText = $m.Groups[2].Value.Trim() }
 }
 
 function Test-BeaconAuthorization($Message, [string]$AuthorizedBotId) {
-    # Slack stamps bot_id on every message a bot posts; it cannot be spoofed
-    # through the API. Human messages carry user instead and are rejected.
+    # Slack stamps bot_id on every message a bot posts. That identifies the
+    # Slack APP, not the agent behind it: anything that can make the app post
+    # (or anything holding the app's token) passes this check. Human messages
+    # carry user instead and are rejected.
     if (-not $Message) { return $false }
     [string]$botId = $Message.bot_id
     if ([string]::IsNullOrWhiteSpace($botId)) { return $false }
@@ -200,7 +208,7 @@ function Get-BeaconDiagnosis {
     $d = [ordered]@{
         Timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
         Computer  = $env:COMPUTERNAME
-        User      = $env:USERNAME
+        User      = $script:BeaconUser
     }
 
     try {
@@ -270,6 +278,13 @@ function Repair-BeaconAgent($Diag) {
     $task = Get-ScheduledTask -TaskName "Jarvis-DesktopAgent" -ErrorAction SilentlyContinue
     if ($task) {
         try {
+            if ($task.State -eq "Running") {
+                # A task can report Running while its listener is dead (hung).
+                # Starting a running task is a no-op, so restart it properly.
+                Write-BeaconLog "Agent task reports Running but port 8099 is closed -- restarting hung task..."
+                Stop-ScheduledTask -TaskName "Jarvis-DesktopAgent" -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 3
+            }
             Start-ScheduledTask -TaskName "Jarvis-DesktopAgent" -ErrorAction Stop
             Write-BeaconLog "Agent task started; waiting for port 8099..."
             Start-Sleep -Seconds 8
@@ -316,11 +331,22 @@ function Invoke-BeaconSlackApi([string]$Token, [string]$Method, [hashtable]$Para
 
 function Get-BeaconChannelId([string]$Token, [string]$ChannelName) {
     $name = $ChannelName.TrimStart("#")
-    $list = Invoke-BeaconSlackApi $Token "conversations.list" @{ types = "public_channel"; limit = 200 }
-    if (-not $list.ok) { throw "conversations.list failed: $($list.error)" }
-    $ch = $list.channels | Where-Object { $_.name -eq $name } | Select-Object -First 1
-    if (-not $ch) { throw "channel '$ChannelName' not found or bot is not a member" }
-    return $ch.id
+    # Page through the full channel list: the workspace may have more than
+    # one page of channels, and private channels work too (bot must be a member).
+    $cursor = $null
+    do {
+        $params = @{ types = "public_channel,private_channel"; limit = 200 }
+        if ($cursor) { $params.cursor = $cursor }
+        $list = Invoke-BeaconSlackApi $Token "conversations.list" $params
+        if (-not $list.ok) { throw "conversations.list failed: $($list.error)" }
+        $ch = $list.channels | Where-Object { $_.name -eq $name } | Select-Object -First 1
+        if ($ch) { return $ch.id }
+        $cursor = $null
+        if ($list.response_metadata -and $list.response_metadata.next_cursor) {
+            $cursor = $list.response_metadata.next_cursor
+        }
+    } while ($cursor)
+    throw "channel '$ChannelName' not found or bot is not a member"
 }
 
 function Invoke-BeaconCommand([string]$CommandText, [int]$TimeoutSec = 60) {
@@ -354,8 +380,10 @@ function Start-BeaconLoop([string]$Token, [string]$Channel, [int]$PollSeconds, [
     Write-BeaconLog "Your Muse posts  [beacon-cmd:<id>] <powershell>  to run a command."
 
     $seen = New-Object System.Collections.Generic.HashSet[string]
-    # Ignore everything already in the channel: commands are never re-executed,
-    # even across restarts. Only messages posted after startup are eligible.
+    # Ignore everything already in the channel. Each message timestamp is
+    # executed at most once: the dedupe key is the ts alone, so editing a
+    # message cannot cause a re-run. Only messages posted after startup
+    # are eligible.
     $lastTs = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString() + ".000000"
     $lastHeartbeat = [DateTime]::MinValue
 
@@ -373,26 +401,36 @@ function Start-BeaconLoop([string]$Token, [string]$Channel, [int]$PollSeconds, [
             return
         }
         try {
-            $hist = Invoke-BeaconSlackApi $Token "conversations.history" @{
-                channel = $channelId; oldest = $lastTs; limit = 20; inclusive = "false"
-            }
-            if ($hist.ok -and $hist.messages) {
-                foreach ($m in $hist.messages) {
-                    $key = "$($m.ts)|$($m.text)"
-                    if ($seen.Contains($key)) { continue }
-                    $seen.Add($key) | Out-Null
-                    if ([double]$m.ts -gt [double]$lastTs) { $lastTs = $m.ts }
-                    $cmd = ConvertTo-BeaconCommand $m
-                    if ($cmd -and (Test-BeaconAuthorization $m $AuthorizedBotId)) {
-                        Write-BeaconLog "cmd $($cmd.Id): $($cmd.CommandText)"
-                        $result = Invoke-BeaconCommand $cmd.CommandText $script:CommandTimeout
-                        $reply = "[beacon-result:$($cmd.Id)]`n``````powershell`n$result`n``````"
-                        try {
-                            Invoke-BeaconSlackApi $Token "chat.postMessage" @{
-                                channel = $channelId; thread_ts = $m.ts; text = $reply
-                            } -HttpMethod "POST" | Out-Null
-                        } catch { Write-BeaconLog "Result post failed: $($_.Exception.Message)" }
-                    }
+            # Page through everything since $lastTs: a single small page could
+            # silently drop commands posted during a busy poll interval.
+            $messages = @()
+            $cursor = $null
+            do {
+                $params = @{ channel = $channelId; oldest = $lastTs; limit = 200; inclusive = "false" }
+                if ($cursor) { $params.cursor = $cursor }
+                $hist = Invoke-BeaconSlackApi $Token "conversations.history" $params
+                if (-not $hist.ok) { throw "conversations.history failed: $($hist.error)" }
+                if ($hist.messages) { $messages += $hist.messages }
+                $cursor = $null
+                if ($hist.response_metadata -and $hist.response_metadata.next_cursor) {
+                    $cursor = $hist.response_metadata.next_cursor
+                }
+            } while ($cursor)
+            foreach ($m in ($messages | Sort-Object { [double]$_.ts })) {
+                $key = [string]$m.ts
+                if ($seen.Contains($key)) { continue }
+                $seen.Add($key) | Out-Null
+                if ([double]$m.ts -gt [double]$lastTs) { $lastTs = $m.ts }
+                $cmd = ConvertTo-BeaconCommand $m
+                if ($cmd -and (Test-BeaconAuthorization $m $AuthorizedBotId)) {
+                    Write-BeaconLog "cmd $($cmd.Id) received from authorized bot"
+                    $result = Invoke-BeaconCommand $cmd.CommandText $script:CommandTimeout
+                    $reply = "[beacon-result:$($cmd.Id)]`n``````powershell`n$result`n``````"
+                    try {
+                        Invoke-BeaconSlackApi $Token "chat.postMessage" @{
+                            channel = $channelId; thread_ts = $m.ts; text = $reply
+                        } -HttpMethod "POST" | Out-Null
+                    } catch { Write-BeaconLog "Result post failed: $($_.Exception.Message)" }
                 }
             }
         } catch { Write-BeaconLog "Poll error: $($_.Exception.Message)" }
@@ -420,13 +458,13 @@ function Install-Beacon([string]$Token, [string]$Channel, [int]$PollSeconds, [st
     if (-not [string]::IsNullOrWhiteSpace($Token)) {
         $tf = Join-Path $script:BeaconHome ".token"
         $Token | Out-File -FilePath $tf -NoNewline -Encoding ascii
-        & icacls $tf /inheritance:r /grant:r "$env:USERNAME:(R,W)" | Out-Null
+        & icacls $tf /inheritance:r /grant:r "$($script:BeaconUser):(R,W)" | Out-Null
     }
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument (
         "-NoProfile -ExecutionPolicy Bypass -File `"$dest`" -FromTask " +
         "-Channel `"$Channel`" -PollSeconds $PollSeconds -AuthorizedBotId `"$AuthorizedBotId`""
     )
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $script:BeaconUser
     Register-ScheduledTask -TaskName $script:BeaconTaskName -Action $action -Trigger $trigger -Force | Out-Null
     Write-BeaconLog "Logon task '$($script:BeaconTaskName)' registered."
     Start-ScheduledTask -TaskName $script:BeaconTaskName
@@ -440,6 +478,12 @@ function Uninstall-Beacon {
         Unregister-ScheduledTask -TaskName $script:BeaconTaskName -Confirm:$false
         Write-BeaconLog "Task '$($script:BeaconTaskName)' removed."
     } else { Write-BeaconLog "No Beacon task to remove." }
+    # A clean uninstall leaves nothing behind: script copy, token, and logs.
+    if (Test-Path $script:BeaconHome) {
+        Remove-Item -Path $script:BeaconHome -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path $script:BeaconHome) { Write-BeaconLog "Could not fully remove $script:BeaconHome -- delete it by hand." }
+        else { Write-BeaconLog "Removed $script:BeaconHome." }
+    }
 }
 
 # --- Self-test (acceptance tests, zero side effects) ---
@@ -480,6 +524,10 @@ function Invoke-BeaconSelfTest {
 }
 
 # --- Main ---
+# Dot-sourced (Pester tests): every function above is loaded, nothing runs.
+# This guard MUST stay below all function definitions -- above them it would
+# return before anything is defined and break every test.
+if ($MyInvocation.InvocationName -eq '.') { return }
 
 Write-BeaconLog "Beacon v$($script:BeaconVersion) -- the Meta Muse companion for this PC."
 
