@@ -7,7 +7,8 @@
 Beacon is a small companion app built **specifically and only for Meta Muse** —
 your personal AI assistant. Install it on your Windows PC and your Muse can
 check the computer's health, fix problems, and help with your work, right from
-your chat with it. Nothing and no one else can use it. (Future versions may
+your chat with it. Commands are accepted only from your Muse's Slack app —
+nobody else's messages run anything. (Future versions may
 add more Muse-specific features; this release is the secure foundation.)
 
 ## Why would I install this?
@@ -23,8 +24,11 @@ add more Muse-specific features; this release is the secure foundation.)
 
 Yes — Beacon went through a security review before release. In plain terms:
 
-- **Only your Muse can give commands.** Every command is checked against your
+- **Only your Muse's app can give commands.** Every command is checked against your
   Muse's private bot code. Messages from anyone or anything else are ignored.
+  One honest limit: the code identifies your Muse's Slack *app* — anything that
+  can make that app post (or anything holding its token) passes the check, so
+  keep the token private like any password.
 - **Beacon never opens your computer to the internet.** It only calls *out*
   to Slack. There are no inbound doors for attackers to knock on.
 - **Commands can't run wild.** Each one stops after 60 seconds, answers are
@@ -109,13 +113,14 @@ GOOS=windows GOARCH=amd64 go build -o Beacon.exe .
 Tests: `Beacon.Tests.ps1` (Pester v5 — the TDD contract, run on Windows)
 and `go test ./...` (launcher unit tests, runs anywhere).
 
-### Security review (v0.3.0)
+### Security review (v0.3.0, re-audited v0.3.6)
 
 - **Authorization:** Slack stamps `bot_id` server-side on every bot-posted
-  message; it cannot be spoofed through the API (verified against a live bot
-  message: `bot_id` present, `user` absent). `Test-BeaconAuthorization`
-  accepts only an exact `bot_id` match; human messages and lookalike text are
-  rejected. An empty authorized id refuses to start.
+  message. `Test-BeaconAuthorization` accepts only an exact `bot_id` match;
+  human messages and lookalike text are rejected. An empty authorized id
+  refuses to start. Honest limit: `bot_id` identifies the Slack *app*, not the
+  agent behind it — anything that can make the app post, or anything holding
+  the app's token, passes this check. Keep the token private.
 - **No inbound attack surface:** outbound HTTPS to `slack.com` only. Windows
   Firewall's default-deny inbound posture is untouched.
 - **Credential handling:** token auto-discovered from the local MACF
@@ -137,6 +142,34 @@ and `go test ./...` (launcher unit tests, runs anywhere).
   could run anything — inherent to a remote-admin tool, mitigated by
   you-choosing-the-bot and one-word uninstall. Channel members can read
   command text and results posted in the channel.
+
+### v0.3.6 — dogfood audit fixes
+
+A full line-by-line audit on a real Windows PC found and fixed:
+
+- **Tests actually run now:** the dot-source guard sat above the function
+  definitions, so loading the script for tests defined nothing — all 19 Pester
+  tests failed. The guard now sits below the functions (with a comment so it
+  never moves back up).
+- **Empty commands rejected:** `[beacon-cmd:abc]` with no command text used to
+  parse as a blank command; now rejected.
+- **Token file permissions actually apply:** the `icacls` grant used
+  `$env:USERNAME`, which can be empty — it now uses the real Windows username
+  (same fix for the logon-task trigger).
+- **Uninstall is complete:** it now removes the Beacon folder, token, and logs
+  — not just the scheduled task.
+- **No dropped commands:** the history poll pages through *all* new messages
+  instead of reading only the first 20.
+- **No re-runs on edit:** the dedupe key is the message timestamp alone, so
+  editing a command message can't execute it twice.
+- **Channel lookup:** pages the full channel list and works in private
+  channels too.
+- **Hung agent repair:** if the desktop-agent task reports Running while its
+  port is closed, Beacon restarts it instead of no-op starting it.
+- **Quieter logs:** only the command id is logged, not the full command text.
+
+Still planned (v0.4.0): per-command allowlist instead of open-ended
+PowerShell, private-channel default. The audit's bar for a test install.
 
 ### Roadmap
 
